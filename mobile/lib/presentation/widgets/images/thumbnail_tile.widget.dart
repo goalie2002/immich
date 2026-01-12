@@ -62,14 +62,15 @@ class ThumbnailTile extends ConsumerWidget {
         AnimatedContainer(
           duration: Durations.short4,
           curve: Curves.decelerate,
+          onEnd: () =>
+              () => {
+                if (!isSelected) {showSelectionContainer = false},
+              },
           padding: EdgeInsets.all(isSelected || lockSelection ? 6 : 0),
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0.0, end: (isSelected || lockSelection) ? 15.0 : 0.0),
-            duration: Durations.short4,
+            duration: Durations.extralong4,
             curve: Curves.decelerate,
-            onEnd: () => {
-              if (!isSelected) {showSelectionContainer = false},
-            },
             builder: (context, value, child) {
               return ClipRRect(borderRadius: BorderRadius.all(Radius.circular(value)), child: child);
             },
