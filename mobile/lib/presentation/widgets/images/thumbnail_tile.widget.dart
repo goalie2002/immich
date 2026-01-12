@@ -33,6 +33,7 @@ class ThumbnailTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final asset = this.asset;
     final heroIndex = heroOffset ?? TabsRouterScope.of(context)?.controller.activeIndex ?? 0;
+    bool showSelectionContainer = false;
 
     final assetContainerColor = context.isDarkTheme
         ? context.primaryColor.darken(amount: 0.4)
@@ -45,9 +46,19 @@ class ThumbnailTile extends ConsumerWidget {
     final bool storageIndicator =
         ref.watch(settingsProvider.select((s) => s.get(Setting.showStorageIndicator))) && showStorageIndicator;
 
+    if (isSelected) {
+      showSelectionContainer = true;
+    }
+
     return Stack(
       children: [
-        Container(color: lockSelection ? context.colorScheme.surfaceContainerHighest : assetContainerColor),
+        Container(
+          color: lockSelection
+              ? context.colorScheme.surfaceContainerHighest
+              : showSelectionContainer
+              ? assetContainerColor
+              : Colors.transparent,
+        ),
         AnimatedContainer(
           duration: Durations.short4,
           curve: Curves.decelerate,
@@ -56,6 +67,9 @@ class ThumbnailTile extends ConsumerWidget {
             tween: Tween<double>(begin: 0.0, end: (isSelected || lockSelection) ? 15.0 : 0.0),
             duration: Durations.short4,
             curve: Curves.decelerate,
+            onEnd: () => {
+              if (!isSelected) {showSelectionContainer = false},
+            },
             builder: (context, value, child) {
               return ClipRRect(borderRadius: BorderRadius.all(Radius.circular(value)), child: child);
             },
