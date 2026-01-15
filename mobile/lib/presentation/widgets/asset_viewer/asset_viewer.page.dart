@@ -108,6 +108,7 @@ class _AssetViewerState extends ConsumerState<AssetViewer> {
   PersistentBottomSheetController? sheetCloseController;
   // PhotoViewGallery takes care of disposing it's controllers
   PhotoViewControllerBase? viewController;
+  PhotoViewControllerBase? videoViewController;
   StreamSubscription? reloadSubscription;
   final ValueNotifier<PhotoViewScaleState> videoScaleStateNotifier = ValueNotifier(PhotoViewScaleState.initial);
 
@@ -547,7 +548,64 @@ class _AssetViewerState extends ConsumerState<AssetViewer> {
   }
 
   void _onLongPress(_, __, ___) {
+    final asset = ref.read(currentAssetNotifier);
+    if (asset == null || viewController == null) {
+      ref.read(isPlayingMotionVideoProvider.notifier).playing = true;
+      return;
+    }
+    // Capture current state
+    final currentScale = viewController!.scale;
+    final currentPosition = viewController!.position;
+
+    if (currentScale != null && currentScale != 1.0) {
+      // Calculate equivalent scale for video
+      final motionPhotoScale = _calculateEquivalentVideoScale(asset, currentScale);
+      final motionPhotoPosition = currentPosition;
+
+      log.info(
+        'Motion photo - original scale: $currentScale, converted scale: $motionPhotoScale, position: $currentPosition',
+      );
+    } else {}
+
     ref.read(isPlayingMotionVideoProvider.notifier).playing = true;
+    log.info('Asset viewer controller position: ${viewController?.position}, scale: ${viewController?.scale}');
+  }
+
+  // Add method to calculate equivalent video scale
+  double _calculateEquivalentVideoScale(BaseAsset asset, double photoScale) {
+    final photoAspectRatio = asset.width! / asset.height!;
+    final screenAspectRatio = context.width / context.height;
+
+    // Calculate how the photo fits in the screen (its base size at scale 1.0)
+    Size photoFitSize;
+    if (photoAspectRatio > screenAspectRatio) {
+      // Photo is wider - constrained by width
+      photoFitSize = Size(context.width, context.width / photoAspectRatio);
+    } else {
+      // Photo is taller - constrained by height
+      photoFitSize = Size(context.height * photoAspectRatio, context.height);
+    }
+
+    // For motion photos, the video typically has the same aspect ratio as the photo
+    // but we'll assume it could be different and calculate accordingly
+    // Since we don't know the video aspect ratio yet, we'll use the photo's aspect ratio
+    // This is a reasonable assumption for motion photos
+    final videoAspectRatio = photoAspectRatio; // Motion photos usually have same aspect ratio
+
+    Size videoFitSize;
+    if (videoAspectRatio > screenAspectRatio) {
+      videoFitSize = Size(context.width, context.width / videoAspectRatio);
+    } else {
+      videoFitSize = Size(context.height * videoAspectRatio, context.height);
+    }
+
+    // Calculate the actual display size of the photo at current scale
+    final actualPhotoWidth = photoFitSize.width * photoScale;
+
+    // What scale would give the video the same actual width?
+    final equivalentVideoScale = actualPhotoWidth / videoFitSize.width;
+
+    return equivalentVideoScale;
   }
 
   PhotoViewGalleryPageOptions _assetBuilder(BuildContext ctx, int index) {

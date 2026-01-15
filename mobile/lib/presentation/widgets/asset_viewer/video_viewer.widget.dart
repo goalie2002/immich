@@ -65,7 +65,7 @@ class NativeVideoViewer extends HookConsumerWidget {
     this.showControls = true,
     this.playbackDelayFactor = 1,
     this.scaleStateNotifier,
-    this.viewController,
+    this.viewController = null,
     this.disableScaleGestures = false,
   });
 
@@ -403,16 +403,21 @@ class NativeVideoViewer extends HookConsumerWidget {
     });
 
     Size? videoContextSize;
+    Size? childSize;
 
     if (aspectRatio.value != null) {
       final contextAspectRatio = context.width / context.height;
 
       if (aspectRatio.value! > contextAspectRatio) {
         videoContextSize = Size(context.width, context.width / aspectRatio.value!);
+        childSize = Size(context.width, context.height);
       } else {
         videoContextSize = Size(context.height * aspectRatio.value!, context.height);
+        childSize = Size(context.height, context.width);
       }
     }
+
+    log.info('Video viewer controller position: ${viewController?.position}, scale: ${viewController?.scale}');
 
     return SizedBox(
       width: context.width,
@@ -427,6 +432,7 @@ class NativeVideoViewer extends HookConsumerWidget {
               visible: isVisible.value,
               child: PhotoView.customChild(
                 key: ValueKey(asset),
+                // initialScale: viewController == viewController,
                 enableRotation: false,
                 disableScaleGestures: disableScaleGestures,
                 // Transparent to avoid a black flash when viewer becomes visible but video isn't loaded yet.
