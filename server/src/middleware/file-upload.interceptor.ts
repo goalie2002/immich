@@ -142,6 +142,7 @@ export class FileUploadInterceptor implements NestInterceptor {
   }
 
   private removeFile(request: AuthRequest, file: Express.Multer.File, callback: (error: Error | null) => void) {
+    file.stream.destroy(); 
     this.defaultStorage._removeFile(request, file, callback);
   }
 
