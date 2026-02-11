@@ -28,6 +28,7 @@ import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/widgets/common/immich_sliver_app_bar.dart';
 import 'package:immich_mobile/widgets/common/mesmerizing_sliver_app_bar.dart';
 import 'package:immich_mobile/widgets/common/selection_sliver_app_bar.dart';
+import 'package:logging/logging.dart';
 
 class Timeline extends StatelessWidget {
   const Timeline({
@@ -129,9 +130,13 @@ class _SliverTimeline extends ConsumerStatefulWidget {
 class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
   late final ScrollController _scrollController;
   StreamSubscription? _eventSubscription;
+  final _log = Logger("timeline");
 
   // Drag selection state
   bool _dragging = false;
+  bool _scrolling = false;
+  bool _blockSelection = true;
+  double _lastScrollPosition = 0.0;
   TimelineAssetIndex? _dragAnchorIndex;
   final Set<BaseAsset> _draggedAssets = HashSet();
   ScrollPhysics? _scrollPhysics;
@@ -148,6 +153,10 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
       initialScrollOffset: widget.initialScrollOffset ?? 0.0,
       onAttach: _restoreScalePosition,
     );
+
+    // Add scroll listener to track scrolling state
+    _scrollController.addListener(_onScroll);
+
     _eventSubscription = EventStream.shared.listen(_onEvent);
 
     final currentTilesPerRow = ref.read(settingsProvider).get(Setting.tilesPerRow);
@@ -156,6 +165,51 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
     _baseScaleFactor = _scaleFactor;
 
     ref.listenManual(multiSelectProvider.select((s) => s.isEnabled), _onMultiSelectionToggled);
+  }
+
+  void _onScroll() {
+    _lastScrollPosition = _scrollController.offset;
+    final isBallistic = _scrollController.position.activity is BallisticScrollActivity;
+    _log.info(isBallistic);
+    if (_scrollController.position.isScrollingNotifier.value) {
+      if (!_scrolling) {
+        setState(() {
+          _scrolling = true;
+        });
+      }
+    } else {
+      if (_scrolling) {
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (mounted) {
+            setState(() {
+              _scrolling = false;
+            });
+          }
+        });
+      }
+    }
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    // // _log.info("Pointer down");
+    // _log.info("Scroll: ${_scrollController.position.isScrollingNotifier.value}");
+    // // if (_scrollController.position.isScrollingNotifier.value) {
+    // //   _blockSelection = true;
+    // // }
+    // _log.info("???: ${_scrollController.position.shouldIgnorePointer}");
+    _log.info("Last: $_lastScrollPosition; Current: ${_scrollController.offset}");
+    _log.info("Block: ${_lastScrollPosition != _scrollController.offset}");
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    // if (_scrollController.position.isScrollingNotifier.value) {
+    //   _blockSelection = true;
+    // } else {
+    //   _blockSelection = false;
+    // }
+    // _log.info(
+    //   "Scroll: ${_scrollController.position.isScrollingNotifier.value}; scrolling: $_scrolling; Block: $_blockSelection",
+    // );
   }
 
   void _onEvent(Event event) {
@@ -203,6 +257,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _eventSubscription?.cancel();
     super.dispose();
@@ -251,6 +306,9 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
 
   // Drag selection methods
   void _setDragStartIndex(TimelineAssetIndex index) {
+    final multiSelectState = ref.read(multiSelectProvider);
+    _log.info("Enabled: ${multiSelectState.isEnabled || multiSelectState.forceEnable}");
+    if (!multiSelectState.isEnabled && !multiSelectState.forceEnable) return;
     setState(() {
       _scrollPhysics = const ClampingScrollPhysics();
       _dragAnchorIndex = index;
@@ -387,74 +445,78 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> {
 
           return PrimaryScrollController(
             controller: _scrollController,
-            child: RawGestureDetector(
-              gestures: {
-                CustomScaleGestureRecognizer: GestureRecognizerFactoryWithHandlers<CustomScaleGestureRecognizer>(
-                  () => CustomScaleGestureRecognizer(),
-                  (CustomScaleGestureRecognizer scale) {
-                    scale.onStart = (details) {
-                      _baseScaleFactor = _scaleFactor;
-                    };
+            child: Listener(
+              onPointerUp: _onPointerUp,
+              onPointerDown: _onPointerDown,
+              child: RawGestureDetector(
+                gestures: {
+                  CustomScaleGestureRecognizer: GestureRecognizerFactoryWithHandlers<CustomScaleGestureRecognizer>(
+                    () => CustomScaleGestureRecognizer(),
+                    (CustomScaleGestureRecognizer scale) {
+                      scale.onStart = (details) {
+                        _baseScaleFactor = _scaleFactor;
+                      };
 
-                    scale.onUpdate = (details) {
-                      final newScaleFactor = math.max(math.min(5.0, _baseScaleFactor * details.scale), 1.0);
-                      final newPerRow = 7 - newScaleFactor.toInt();
+                      scale.onUpdate = (details) {
+                        final newScaleFactor = math.max(math.min(5.0, _baseScaleFactor * details.scale), 1.0);
+                        final newPerRow = 7 - newScaleFactor.toInt();
 
-                      if (newPerRow != _perRow) {
-                        final currentOffset = _scrollController.offset.clamp(
-                          0.0,
-                          _scrollController.position.maxScrollExtent,
-                        );
-                        final segment = segments.findByOffset(currentOffset) ?? segments.lastOrNull;
-                        int? targetAssetIndex;
-                        if (segment != null) {
-                          final rowIndex = segment.getMinChildIndexForScrollOffset(currentOffset);
-                          if (rowIndex > segment.firstIndex) {
-                            final rowIndexInSegment = rowIndex - (segment.firstIndex + 1);
-                            final assetsPerRow = ref.read(timelineArgsProvider).columnCount;
-                            final assetIndexInSegment = rowIndexInSegment * assetsPerRow;
-                            targetAssetIndex = segment.firstAssetIndex + assetIndexInSegment;
-                          } else {
-                            targetAssetIndex = segment.firstAssetIndex;
+                        if (newPerRow != _perRow) {
+                          final currentOffset = _scrollController.offset.clamp(
+                            0.0,
+                            _scrollController.position.maxScrollExtent,
+                          );
+                          final segment = segments.findByOffset(currentOffset) ?? segments.lastOrNull;
+                          int? targetAssetIndex;
+                          if (segment != null) {
+                            final rowIndex = segment.getMinChildIndexForScrollOffset(currentOffset);
+                            if (rowIndex > segment.firstIndex) {
+                              final rowIndexInSegment = rowIndex - (segment.firstIndex + 1);
+                              final assetsPerRow = ref.read(timelineArgsProvider).columnCount;
+                              final assetIndexInSegment = rowIndexInSegment * assetsPerRow;
+                              targetAssetIndex = segment.firstAssetIndex + assetIndexInSegment;
+                            } else {
+                              targetAssetIndex = segment.firstAssetIndex;
+                            }
                           }
+
+                          setState(() {
+                            _scaleFactor = newScaleFactor;
+                            _perRow = newPerRow;
+                            _scaleRestoreAssetIndex = targetAssetIndex;
+                          });
+
+                          ref.read(settingsProvider.notifier).set(Setting.tilesPerRow, _perRow);
                         }
-
-                        setState(() {
-                          _scaleFactor = newScaleFactor;
-                          _perRow = newPerRow;
-                          _scaleRestoreAssetIndex = targetAssetIndex;
-                        });
-
-                        ref.read(settingsProvider.notifier).set(Setting.tilesPerRow, _perRow);
-                      }
-                    };
-                  },
-                ),
-              },
-              child: TimelineDragRegion(
-                onStart: !isReadonlyModeEnabled ? _setDragStartIndex : null,
-                onAssetEnter: _handleDragAssetEnter,
-                onEnd: !isReadonlyModeEnabled ? _stopDrag : null,
-                onScroll: _dragScroll,
-                onScrollStart: () {
-                  // Minimize the bottom sheet when drag selection starts
-                  ref.read(timelineStateProvider.notifier).setScrolling(true);
+                      };
+                    },
+                  ),
                 },
-                child: Stack(
-                  children: [
-                    timeline,
-                    if (!isSelectionMode && isMultiSelectEnabled) ...[
-                      Positioned(
-                        top: MediaQuery.paddingOf(context).top,
-                        left: 25,
-                        child: const SizedBox(
-                          height: kToolbarHeight,
-                          child: Center(child: _MultiSelectStatusButton()),
+                child: TimelineDragRegion(
+                  onStart: !isReadonlyModeEnabled ? _setDragStartIndex : null,
+                  onAssetEnter: _handleDragAssetEnter,
+                  onEnd: !isReadonlyModeEnabled ? _stopDrag : null,
+                  onScroll: _dragScroll,
+                  onScrollStart: () {
+                    // Minimize the bottom sheet when drag selection starts
+                    ref.read(timelineStateProvider.notifier).setScrolling(true);
+                  },
+                  child: Stack(
+                    children: [
+                      timeline,
+                      if (!isSelectionMode && isMultiSelectEnabled) ...[
+                        Positioned(
+                          top: MediaQuery.paddingOf(context).top,
+                          left: 25,
+                          child: const SizedBox(
+                            height: kToolbarHeight,
+                            child: Center(child: _MultiSelectStatusButton()),
+                          ),
                         ),
-                      ),
-                      if (widget.bottomSheet != null) widget.bottomSheet!,
+                        if (widget.bottomSheet != null) widget.bottomSheet!,
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
