@@ -95,6 +95,8 @@ class NativeVideoViewer extends HookConsumerWidget {
 
     final isCasting = ref.watch(castProvider.select((c) => c.isCasting));
 
+    final photoViewController = PhotoViewController(initialPosition: initialPanOffset);
+
     Future<VideoSource?> createSource() async {
       if (!context.mounted) {
         return null;
@@ -429,14 +431,26 @@ class NativeVideoViewer extends HookConsumerWidget {
       child: Stack(
         children: [
           // Hide thumbnail once video is visible to avoid it showing in background when zooming out on video.
-          if (!isVisible.value || controller.value == null) Center(key: ValueKey(asset.heroTag), child: image),
+          if (!isVisible.value || controller.value == null)
+            PhotoView.customChild(
+              key: ValueKey('${asset.heroTag}_thumbnail'),
+              controller: photoViewController,
+              initialScale: PhotoViewComputedScale.contained * initialUserZoomFactor,
+              minScale: PhotoViewComputedScale.contained,
+              enableRotation: false,
+              disableScaleGestures: disableScaleGestures,
+              backgroundDecoration: const BoxDecoration(color: Colors.transparent),
+              scaleStateChangedCallback: (state) => scaleStateNotifier?.value = state,
+              onPageBuild: onPageBuild,
+              child: image,
+            ),
           if (aspectRatio.value != null && !isCasting && isCurrent)
             Visibility.maintain(
               key: ValueKey('${asset.heroTag}_video'),
               visible: isVisible.value,
               child: PhotoView.customChild(
                 key: ValueKey('${asset.heroTag}_video_photoview'),
-                controller: PhotoViewController(initialPosition: initialPanOffset),
+                controller: photoViewController,
                 initialScale: PhotoViewComputedScale.contained * initialUserZoomFactor,
                 minScale: PhotoViewComputedScale.contained,
                 enableRotation: false,

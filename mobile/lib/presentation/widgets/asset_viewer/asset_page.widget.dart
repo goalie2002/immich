@@ -366,7 +366,7 @@ class _AssetPageState extends ConsumerState<AssetPage> {
     }
 
     return PhotoView.customChild(
-      key: ValueKey(displayAsset.heroTag),
+      key: ValueKey('${asset.heroTag}_video'),
       onDragStart: _onDragStart,
       onDragUpdate: _onDragUpdate,
       onDragEnd: _onDragEnd,
