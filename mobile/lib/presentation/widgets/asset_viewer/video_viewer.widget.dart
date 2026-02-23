@@ -95,7 +95,9 @@ class NativeVideoViewer extends HookConsumerWidget {
 
     final isCasting = ref.watch(castProvider.select((c) => c.isCasting));
 
-    final photoViewController = PhotoViewController(initialPosition: initialPanOffset);
+    final photoViewController = useMemoized(() => PhotoViewController(initialPosition: initialPanOffset), [
+      asset.heroTag,
+    ]);
 
     Future<VideoSource?> createSource() async {
       if (!context.mounted) {
