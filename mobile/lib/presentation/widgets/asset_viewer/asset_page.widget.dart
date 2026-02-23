@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/gestures.dart' show Drag, kTouchSlop;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
@@ -50,6 +51,8 @@ class _AssetPageState extends ConsumerState<AssetPage> {
 
   bool _showingDetails = false;
   bool _isZoomed = false;
+  double userZoomFactor = 1.0;
+  Offset userPanOffset = Offset.zero;
 
   final _scrollController = ScrollController();
   late final _proxyScrollController = ProxyScrollController(scrollController: _scrollController);
@@ -83,6 +86,7 @@ class _AssetPageState extends ConsumerState<AssetPage> {
     _scaleBoundarySub?.cancel();
     _eventSubscription?.cancel();
     _videoScaleStateNotifier.dispose();
+    _photoScaleSub?.cancel();
     super.dispose();
   }
 
@@ -297,9 +301,28 @@ class _AssetPageState extends ConsumerState<AssetPage> {
     return math.min(maxWidth / r, maxHeight);
   }
 
+  StreamSubscription? _photoScaleSub;
+
   void _onPageBuild(PhotoViewControllerBase controller) {
     _viewController = controller;
     _listenForScaleBoundaries(controller);
+
+    _photoScaleSub?.cancel();
+    _photoScaleSub = controller.outputStateStream.listen(_onPhotoViewStateChange);
+  }
+
+  void _onPhotoViewStateChange(PhotoViewControllerValue value) {
+    final initialScale = _viewController?.initialScale;
+    final scale = value.scale;
+
+    if (initialScale == null || scale == null) {
+      return;
+    }
+
+    userZoomFactor = scale / initialScale;
+    userPanOffset = value.position;
+    log.info("Zoom: $userZoomFactor");
+    log.info("Pan: $userPanOffset");
   }
 
   Widget _buildPhotoView(
@@ -343,7 +366,7 @@ class _AssetPageState extends ConsumerState<AssetPage> {
     }
 
     return PhotoView.customChild(
-      key: ValueKey(displayAsset),
+      key: ValueKey(displayAsset.heroTag),
       onDragStart: _onDragStart,
       onDragUpdate: _onDragUpdate,
       onDragEnd: _onDragEnd,
@@ -359,8 +382,10 @@ class _AssetPageState extends ConsumerState<AssetPage> {
       enablePanAlways: true,
       backgroundDecoration: backgroundDecoration,
       child: NativeVideoViewer(
-        key: ValueKey(displayAsset),
+        key: ValueKey(displayAsset.heroTag),
         asset: displayAsset,
+        initialPanOffset: userPanOffset,
+        initialUserZoomFactor: userZoomFactor,
         scaleStateNotifier: _videoScaleStateNotifier,
         disableScaleGestures: showingDetails,
         image: Image(
